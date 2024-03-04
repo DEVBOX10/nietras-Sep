@@ -141,15 +141,16 @@ public class SepStringHashPoolTest
         Contract.Assume(toStringObject != null);
         var toString = (ToStringDelegate)toStringObject;
 
-        var maximumCapacity = 16;
-        var createPools = new Func<ISepStringHashPool>[] {
-            () => new SepStringHashPool(initialCapacity: maximumCapacity, maximumCapacity: maximumCapacity),
-            () => new SepStringHashPoolFixedCapacity(capacity: maximumCapacity),
+        //var maximumCapacity = 16;
+        var createPools = new (int Capacity, Func<int, ISepStringHashPool> CreatePool)[] {
+            (16, c => new SepStringHashPool(initialCapacity: c, maximumCapacity: c)),
+            // Capacity for fixed must be prime since using SepPrimeInfo
+            (23, c => new SepStringHashPoolFixedCapacity(capacity: c)),
         };
 
-        foreach (var createPool in createPools)
+        foreach (var (maximumCapacity, createPool) in createPools)
         {
-            using var pool = createPool();
+            using var pool = createPool(maximumCapacity);
 
             var withinCapacityStrings = new string[maximumCapacity];
 

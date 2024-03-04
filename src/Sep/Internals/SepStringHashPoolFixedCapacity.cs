@@ -7,7 +7,6 @@ using System.Buffers;
 #if SEPSTRINGPOOLUSAGE
 using System.Collections.Generic;
 #endif
-using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 #if SEPSTRINGPOOL_CACHE_LAST_THREADSAFE
@@ -36,6 +35,7 @@ sealed class SepStringHashPoolFixedCapacity : ISepStringHashPool
     }
 
     readonly int _maximumStringLength;
+    readonly SepPrimeInfo _primeInfo;
     int[] _buckets; // contains index into entries offset by -1. So that 0 (default) means empty bucket.
     Entry[] _entries;
     volatile int _count;
@@ -60,7 +60,8 @@ sealed class SepStringHashPoolFixedCapacity : ISepStringHashPool
         int capacity = CapacityDefault)
     {
         _maximumStringLength = maximumStringLength;
-        var size = GetSize(Math.Max(2, capacity));
+        _primeInfo = SepPrimeInfos.NextPrime((uint)Math.Max(2, capacity));
+        var size = (int)_primeInfo.Prime;
         _buckets = ArrayPool<int>.Shared.Rent(size);
         Array.Clear(_buckets);
         _entries = ArrayPool<Entry>.Shared.Rent(size);
@@ -89,7 +90,6 @@ sealed class SepStringHashPoolFixedCapacity : ISepStringHashPool
 
         var entries = _entries;
         ref var entriesRef = ref MemoryMarshal.GetArrayDataReference(entries);
-        var entriesLength = (uint)entries.Length;
 
         var i = bucket - 1;
         uint collisionCount = 0;
@@ -126,7 +126,7 @@ sealed class SepStringHashPoolFixedCapacity : ISepStringHashPool
         lastString = stringValue;
 #endif
         var index = count;
-        if (index < entriesLength)
+        if (index < _primeInfo.Prime)
         {
             ref var entry = ref Unsafe.Add(ref entriesRef, index);
             entry.HashCode = hashCode;
@@ -162,7 +162,6 @@ sealed class SepStringHashPoolFixedCapacity : ISepStringHashPool
 
         var entries = _entries;
         ref var entriesRef = ref MemoryMarshal.GetArrayDataReference(entries);
-        var entriesLength = entries.Length;
 
         var i = bucket - 1;
         uint collisionCount = 0;
@@ -197,13 +196,13 @@ sealed class SepStringHashPoolFixedCapacity : ISepStringHashPool
 #endif
 
         // Add only if more room
-        if (_count < entriesLength)
+        if (_count < _primeInfo.Prime)
         {
             // Lock during add of new entry
             lock (this)
             {
                 var index = _count;
-                if (index < entriesLength)
+                if (index < _primeInfo.Prime)
                 {
                     ref var entry = ref Unsafe.Add(ref entriesRef, index);
                     entry.HashCode = hashCode;
@@ -222,13 +221,12 @@ sealed class SepStringHashPoolFixedCapacity : ISepStringHashPool
         return stringValue;
     }
 
-    static int GetSize(int capacity) => (int)BitOperations.RoundUpToPowerOf2((uint)capacity);
-
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     ref int GetBucket(uint hashCode)
     {
         var buckets = _buckets;
-        var index = hashCode & ((uint)buckets.Length - 1);
+        var index = _primeInfo.GetIndexForHash(hashCode);
+        //var index = hashCode & ((uint)buckets.Length - 1);
         return ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(buckets), index);
     }
 
